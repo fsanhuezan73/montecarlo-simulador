@@ -3,7 +3,7 @@ name: Deploy to AWS Elastic Beanstalk (on tag)
 on:
   push:
     tags:
-      - 'v*'  # Solo se activa si haces push de un tag como v1.0.0
+      - 'v*'  # Solo ejecuta cuando haces push de un tag como v1.0.0
 
 jobs:
   deploy:
@@ -44,9 +44,19 @@ jobs:
     - name: Package Dockerfile
       run: zip -r deploy.zip Dockerfile
 
+    - name: Ensure S3 bucket exists
+      env:
+        BUCKET_NAME: elasticbeanstalk-us-east-1-235494787662
+      run: |
+        aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null || \
+        aws s3api create-bucket \
+          --bucket "$BUCKET_NAME" \
+          --region ${{ secrets.AWS_REGION }} \
+          --create-bucket-configuration LocationConstraint=${{ secrets.AWS_REGION }}
+        echo "S3_BUCKET=$BUCKET_NAME" >> $GITHUB_ENV
+
     - name: Upload bundle to S3
       run: |
-        S3_BUCKET="elasticbeanstalk-${{ secrets.AWS_REGION }}-${{ secrets.AWS_ACCESS_KEY_ID }}"
         S3_KEY="deploy-${{ env.IMAGE_TAG }}.zip"
         aws s3 cp deploy.zip s3://$S3_BUCKET/$S3_KEY
         echo "S3_KEY=$S3_KEY" >> $GITHUB_ENV
