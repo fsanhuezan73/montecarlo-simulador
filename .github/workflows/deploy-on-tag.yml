@@ -1,0 +1,65 @@
+name: Deploy to AWS Elastic Beanstalk (on tag)
+
+on:
+  push:
+    tags:
+      - 'v*'  # Solo se activa si haces push de un tag como v1.0.0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build and push Docker image to ECR
+      env:
+        ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      run: |
+        IMAGE_TAG=${GITHUB_REF#refs/tags/}
+        IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker build -t $IMAGE_URI .
+        docker push $IMAGE_URI
+        echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    - name: Generate Dockerfile
+      run: |
+        echo "FROM $IMAGE_URI" > Dockerfile
+        echo "EXPOSE 5000" >> Dockerfile
+        echo 'CMD ["python", "app.py"]' >> Dockerfile
+
+    - name: Package Dockerfile
+      run: zip -r deploy.zip Dockerfile
+
+    - name: Upload bundle to S3
+      run: |
+        S3_BUCKET="elasticbeanstalk-${{ secrets.AWS_REGION }}-${{ secrets.AWS_ACCESS_KEY_ID }}"
+        S3_KEY="deploy-${{ env.IMAGE_TAG }}.zip"
+        aws s3 cp deploy.zip s3://$S3_BUCKET/$S3_KEY
+        echo "S3_KEY=$S3_KEY" >> $GITHUB_ENV
+
+    - name: Create EB app version
+      run: |
+        aws elasticbeanstalk create-application-version \
+          --application-name ${{ secrets.EB_APP_NAME }} \
+          --version-label "${{ env.IMAGE_TAG }}" \
+          --source-bundle S3Bucket=$S3_BUCKET,S3Key=${{ env.S3_KEY }}
+
+    - name: Deploy to EB
+      run: |
+        aws elasticbeanstalk update-environment \
+          --environment-name ${{ secrets.EB_ENV_NAME }} \
+          --version-label "${{ env.IMAGE_TAG }}"
