@@ -38,7 +38,7 @@ jobs:
     - name: Generate Dockerfile
       run: |
         echo "FROM $IMAGE_URI" > Dockerfile
-        echo "EXPOSE 5000" >> Dockerfile
+        echo "EXPOSE 5001" >> Dockerfile
         echo 'CMD ["python", "app.py"]' >> Dockerfile
 
     - name: Package Dockerfile
